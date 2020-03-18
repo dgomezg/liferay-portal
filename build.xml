@@ -90,6 +90,25 @@
 		</sequential>
 	</macrodef>
 
+	<target name="test-gradle-clean">
+		<delete dir="${user.home}/.liferay/mirrors/github.com/liferay/liferay-binaries-cache-2020" />
+
+		<delete dir="${project.dir}/.gradle/daemon" />
+		<delete dir="${project.dir}/.gradle/native" />
+		<delete dir="${project.dir}/.gradle/notifications" />
+		<delete dir="${project.dir}/.gradle/wrapper" />
+
+		<delete file="${project.dir}/tools/gradle-5.6.4.LIFERAY-PATCHED-2-bin.zip" />
+	</target>
+
+	<target depends="test-gradle-clean" name="test-gradle-stop">
+		<gradle-execute dir="." forcedcacheenabled="false" setupbinariescache="false" task="">
+			<arg value="--stop" />
+		</gradle-execute>
+
+		<gradle-stop-daemon />
+	</target>
+
 	<target name="all">
 		<if>
 			<not>
