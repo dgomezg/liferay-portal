@@ -15,6 +15,7 @@
 package com.liferay.message.boards.internal.upgrade.v3_1_0;
 
 import com.liferay.message.boards.internal.upgrade.v3_1_0.util.MBMessageTable;
+import com.liferay.petra.string.StringBundler;
 import com.liferay.petra.string.StringPool;
 import com.liferay.portal.kernel.dao.jdbc.AutoBatchPreparedStatementUtil;
 import com.liferay.portal.kernel.upgrade.UpgradeProcess;
@@ -26,6 +27,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Javier Gamarra
@@ -43,26 +49,44 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 		_populateUrlSubject();
 	}
 
-	private String _findUniqueUrlSubject(Connection con, String urlSubject)
+	private String _findUniqueUrlSubject(long mbMessageId, String subject) {
+		String urlSubject = _getUrlSubject(mbMessageId, subject);
+
+		String uniqueUrlSubject = urlSubject;
+
+		int count = 1;
+
+		while (_currentUrlSubjects.contains(uniqueUrlSubject)) {
+			uniqueUrlSubject = urlSubject + StringPool.DASH + count;
+
+			count++;
+		}
+
+		_currentUrlSubjects.add(uniqueUrlSubject);
+
+		return uniqueUrlSubject;
+	}
+
+	private Map<Long, String> _getNewUrlSubjects(Connection con)
 		throws SQLException {
 
 		try (PreparedStatement ps = con.prepareStatement(
-				"select count(*) from MBMessage where urlSubject like ?")) {
-
-			ps.setString(1, urlSubject + "%");
+				"select messageId, subject from MBMessage where " +
+					"(MBMessage.urlSubject is null) or (MBMessage.urlSubject " +
+						"= '')")) {
 
 			try (ResultSet rs = ps.executeQuery()) {
-				if (!rs.next()) {
-					return urlSubject;
+				Map<Long, String> urlSubjects = new HashMap<>();
+
+				while (rs.next()) {
+					long messageId = rs.getLong(1);
+					String subject = rs.getString(2);
+
+					urlSubjects.put(
+						messageId, _findUniqueUrlSubject(messageId, subject));
 				}
 
-				int mbMessageCount = rs.getInt(1);
-
-				if (mbMessageCount == 0) {
-					return urlSubject;
-				}
-
-				return urlSubject + StringPool.DASH + mbMessageCount;
+				return urlSubjects;
 			}
 		}
 	}
@@ -87,21 +111,36 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 		return subject.substring(0, Math.min(subject.length(), 254));
 	}
 
+	private void _populateCurrentUrlSubjects(Connection con)
+		throws SQLException {
+
+		try (PreparedStatement ps = con.prepareStatement(
+				StringBundler.concat(
+					"select subject from MBMessage where ",
+					"(!MBMessage.urlSubject is null) or ",
+					"(!MBMessage.urlSubject = '')"))) {
+
+			try (ResultSet rs = ps.executeQuery()) {
+				Set<String> urlSubjects = new HashSet<>();
+
+				while (rs.next()) {
+					String subject = rs.getString(1);
+
+					urlSubjects.add(subject);
+				}
+			}
+		}
+	}
+
 	private void _populateUrlSubject() throws SQLException {
-		try (PreparedStatement ps1 = connection.prepareStatement(
-				"select messageId, subject from MBMessage where (urlSubject " +
-					"is null) or (urlSubject = '')");
-			ResultSet rs = ps1.executeQuery();
-			PreparedStatement ps2 = AutoBatchPreparedStatementUtil.autoBatch(
-				connection.prepareStatement(
-					"update MBMessage set urlSubject = ? where messageId = " +
-						"?"))) {
+		_populateCurrentUrlSubjects(connection);
 
-			while (rs.next()) {
-				long messageId = rs.getLong(1);
-				String subject = rs.getString(2);
+		Map<Long, String> addNewUrlSubjects = _getNewUrlSubjects(connection);
 
-				String urlSubject = _getUrlSubject(messageId, subject);
+		for (Map.Entry<Long, String> entry : addNewUrlSubjects.entrySet()) {
+			_updateMBMessage(connection, entry.getKey(), entry.getValue());
+		}
+	}
 
 				String uniqueUrlSubject = _findUniqueUrlSubject(
 					connection, urlSubject);
@@ -116,5 +155,7 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 			ps2.executeBatch();
 		}
 	}
+
+	private final Set<String> _currentUrlSubjects = new HashSet<>();
 
 }
