@@ -43,7 +43,7 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 		if (!hasColumn("MBMessage", "urlSubject")) {
 			alter(
 				MBMessageTable.class,
-				new AlterTableAddColumn("urlSubject", "VARCHAR(255) null"));
+				new AlterColumnType("urlSubject", "VARCHAR(255) null"));
 		}
 
 		_populateUrlSubject();
@@ -65,30 +65,6 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 		_currentUrlSubjects.add(uniqueUrlSubject);
 
 		return uniqueUrlSubject;
-	}
-
-	private Map<Long, String> _getNewUrlSubjects(Connection con)
-		throws SQLException {
-
-		try (PreparedStatement ps = con.prepareStatement(
-				"select messageId, subject from MBMessage where " +
-					"(MBMessage.urlSubject is null) or (MBMessage.urlSubject " +
-						"= '')")) {
-
-			try (ResultSet rs = ps.executeQuery()) {
-				Map<Long, String> urlSubjects = new HashMap<>();
-
-				while (rs.next()) {
-					long messageId = rs.getLong(1);
-					String subject = rs.getString(2);
-
-					urlSubjects.put(
-						messageId, _findUniqueUrlSubject(messageId, subject));
-				}
-
-				return urlSubjects;
-			}
-		}
 	}
 
 	private String _getUrlSubject(long id, String subject) {
@@ -133,14 +109,26 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 	}
 
 	private void _populateUrlSubject() throws SQLException {
+
 		_populateCurrentUrlSubjects(connection);
 
-		Map<Long, String> addNewUrlSubjects = _getNewUrlSubjects(connection);
+		try (PreparedStatement ps1 = connection.prepareStatement(
+				"select messageId, subject from MBMessage where (urlSubject " +
+					"is null) or (urlSubject = '')");
+			ResultSet rs = ps1.executeQuery();
+			PreparedStatement ps2 = AutoBatchPreparedStatementUtil.autoBatch(
+				connection.prepareStatement(
+					"update MBMessage set urlSubject = ? where messageId = " +
+						"?"))) {
 
-		for (Map.Entry<Long, String> entry : addNewUrlSubjects.entrySet()) {
-			_updateMBMessage(connection, entry.getKey(), entry.getValue());
-		}
-	}
+			while (rs.next()) {
+				long messageId = rs.getLong(1);
+				String subject = rs.getString(2);
+
+				urlSubjects.put(
+					messageId, _findUniqueUrlSubject(messageId, subject));
+
+				String urlSubject = _getUrlSubject(messageId, subject);
 
 				String uniqueUrlSubject = _findUniqueUrlSubject(
 					connection, urlSubject);
@@ -155,6 +143,7 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 			ps2.executeBatch();
 		}
 	}
+
 
 	private final Set<String> _currentUrlSubjects = new HashSet<>();
 
