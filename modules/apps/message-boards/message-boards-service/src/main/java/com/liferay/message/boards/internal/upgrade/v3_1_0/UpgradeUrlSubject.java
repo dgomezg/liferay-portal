@@ -121,6 +121,8 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 					"update MBMessage set urlSubject = ? where messageId = " +
 						"?"))) {
 
+			Map<Long, String> urlSubjects = new HashMap<>();
+
 			while (rs.next()) {
 				long messageId = rs.getLong(1);
 				String subject = rs.getString(2);
@@ -131,7 +133,7 @@ public class UpgradeUrlSubject extends UpgradeProcess {
 				String urlSubject = _getUrlSubject(messageId, subject);
 
 				String uniqueUrlSubject = _findUniqueUrlSubject(
-					connection, urlSubject);
+					messageId, urlSubject);
 
 				ps2.setString(1, uniqueUrlSubject);
 
